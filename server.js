@@ -481,23 +481,29 @@ async function handleRequest(req, res) {
       ? 'https://blockstream.info/testnet/api'
       : 'https://blockstream.info/api';
 
-    try {
-      const resp = await fetch(`${base}/tx/${txid}/hex`, { signal: AbortSignal.timeout(10000) });
-      if (resp.status === 404) {
-        log(req, 404);
-        return json(res, 404, { error: `Transaction not found on ${network}: ${txid}` });
+    const explorers = network === 'testnet'
+      ? [ `https://blockstream.info/testnet/api/tx/${txid}/hex`, `https://mempool.space/testnet/api/tx/${txid}/hex` ]
+      : [ `https://blockstream.info/api/tx/${txid}/hex`,         `https://mempool.space/api/tx/${txid}/hex` ];
+
+    let lastError = '';
+    for (const url of explorers) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const resp = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': 'bitcoin-script-debugger/1.0' } });
+        clearTimeout(timer);
+        if (resp.status === 404) { log(req, 404); return json(res, 404, { error: `Transaction not found on ${network}: ${txid}` }); }
+        if (!resp.ok) { lastError = `HTTP ${resp.status}`; continue; }
+        const hex = (await resp.text()).trim();
+        log(req, 200);
+        return json(res, 200, { hex });
+      } catch (e) {
+        clearTimeout(timer);
+        lastError = e.name === 'AbortError' ? 'Timeout' : e.message;
       }
-      if (!resp.ok) {
-        log(req, 502);
-        return json(res, 502, { error: `Blockstream API error: HTTP ${resp.status}` });
-      }
-      const hex = (await resp.text()).trim();
-      log(req, 200);
-      return json(res, 200, { hex });
-    } catch (e) {
-      log(req, 502);
-      return json(res, 502, { error: `Failed to fetch transaction: ${e.message}` });
     }
+    log(req, 502);
+    return json(res, 502, { error: `Could not fetch transaction: ${lastError}` });
   }
 
   if (url.pathname === '/api/parse-tx' && req.method === 'POST') {
