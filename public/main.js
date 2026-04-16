@@ -659,10 +659,21 @@ function renderParsedTx(tx) {
         </div>
         <div style="font-size:11px;color:var(--text-muted);font-family:var(--mono);margin-bottom:6px">${truncAsm(out.scriptPubKeyAsm)}</div>
         ${out.scriptPubKeyAsm
-          ? `<button onclick='loadScriptsForDebug("",${JSON.stringify(out.scriptPubKeyAsm)},${JSON.stringify('Output #'+out.index+' — '+out.outputType+' ('+out.btc+' BTC)')})'
+          ? (() => {
+              let debugLocking = out.scriptPubKeyAsm;
+              let debugUnlocking = '';
+              let debugNote = `Output #${out.index} — ${out.outputType} (${out.btc} BTC)`;
+              // P2WPKH: OP_0 <20-byte-hash> → equivalent P2PKH locking script
+              if (out.outputType === 'P2WPKH') {
+                const hash = out.scriptPubKeyAsm.split(' ')[1] || '';
+                debugLocking  = `OP_DUP OP_HASH160 ${hash} OP_EQUALVERIFY OP_CHECKSIG`;
+                debugNote += ' [SegWit equivalent]';
+              }
+              return `<button onclick='loadScriptsForDebug(${JSON.stringify(debugUnlocking)},${JSON.stringify(debugLocking)},${JSON.stringify(debugNote)})'
                style="font-size:11px;padding:3px 10px;border-radius:5px;cursor:pointer;background:var(--accent);color:#fff;border:none;font-weight:600">
                ▶ Debug this output
-             </button>`
+             </button>`;
+            })()
           : `<span style="font-size:11px;color:var(--text-muted);font-style:italic">No spendable script</span>`
         }
       </div>`;
@@ -690,10 +701,14 @@ function loadScriptsForDebug(unlocking, locking, label) {
   }
 
   resetDisplay();
-  showToast(`Loaded: ${label || 'scripts from transaction'}`);
 
-  // Scroll script input into view
-  unlockInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  // Auto-execute so the debugger starts immediately
+  if (locking) {
+    runScript();
+  } else {
+    showToast(`Loaded: ${label || 'scripts from transaction'}`);
+    unlockInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 // ─── Start ────────────────────────────────────────────────────────────────────
