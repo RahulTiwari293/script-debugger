@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bitcoin Script Debugger</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">₿</div>
+    <div>
+      <div class="header-title">Bitcoin Script Debugger</div>
+      <div class="header-sub">Stack-based Script Interpreter</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center">
+    <span class="badge badge-orange">Legacy</span>
+    <span class="badge badge-blue">SegWit</span>
+    <span class="badge badge-purple">Puzzles</span>
+  </div>
+</header>
+
+<!-- ── App ─────────────────────────────────────────────────── -->
+<div class="app">
+
+  <!-- ── Left panel ─────────────────────────────────────────── -->
+  <aside class="left-panel">
+
+    <!-- Templates -->
+    <div class="section">
+      <div class="section-title">Script Templates</div>
+      <div class="templates-grid" id="tplGrid">
+        <div style="color:var(--text-muted);font-size:12px">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Raw Transaction Decode -->
+    <div class="section">
+      <div class="section-title">Raw Transaction Decode</div>
+      <textarea id="rawTxInput" rows="4"
+        placeholder="Paste raw tx hex — or btcdeb --tx=01000000... format&#10;Inputs and outputs will be extracted automatically"></textarea>
+      <div class="gap-10"></div>
+      <button class="btn-execute" style="font-size:13px;padding:8px 14px" onclick="parseTx()">
+        <div class="spinner" id="txSpinner"></div>
+        <span id="txBtnText">⚡ Parse Transaction</span>
+      </button>
+
+      <!-- TxID Lookup -->
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">
+          — or lookup by TxID —
+        </div>
+
+        <div class="script-label" style="margin-bottom:4px">
+          <span>Spending TxID <span style="color:var(--text-muted)">(has scriptSig)</span></span>
+          <span class="badge badge-blue">INPUT</span>
+        </div>
+        <input id="spendingTxid" type="text" style="width:100%;box-sizing:border-box;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-family:var(--mono);font-size:11px;outline:none"
+          placeholder="64-char hex txid" />
+
+        <div class="gap-10"></div>
+
+        <div class="script-label" style="margin-bottom:4px">
+          <span>Previous TxID <span style="color:var(--text-muted)">(has scriptPubKey)</span></span>
+          <span class="badge badge-orange">OUTPUT</span>
+        </div>
+        <input id="prevTxid" type="text" style="width:100%;box-sizing:border-box;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-family:var(--mono);font-size:11px;outline:none"
+          placeholder="64-char hex txid (optional)" />
+
+        <div class="gap-10"></div>
+
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="networkSel" style="flex:1;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:12px;outline:none">
+            <option value="mainnet">Mainnet</option>
+            <option value="testnet">Testnet</option>
+          </select>
+          <button class="btn-execute" style="flex:2;font-size:13px;padding:8px 14px" onclick="fetchByTxid()">
+            <div class="spinner" id="fetchSpinner"></div>
+            <span id="fetchBtnText">🔍 Fetch &amp; Decode</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="txResult" style="display:none;margin-top:12px;max-height:260px;overflow-y:auto"></div>
+    </div>
+
+    <!-- Script Input -->
+    <div class="section">
+      <div class="section-title">Script Input</div>
+
+      <div class="script-label">
+        <span>Unlocking Script (ScriptSig / Witness)</span>
+        <span class="badge badge-blue">INPUT</span>
+      </div>
+      <textarea id="unlockingInput" rows="3"
+        placeholder="e.g.  <sig> <pubkey>  or  OP_0 <sig1> <sig2>"></textarea>
+
+      <div class="gap-10"></div>
+
+      <div class="script-label">
+        <span>Locking Script (ScriptPubKey)</span>
+        <span class="badge badge-orange">OUTPUT</span>
+      </div>
+      <textarea id="lockingInput" rows="3"
+        placeholder="e.g.  OP_DUP OP_HASH160 <hash> OP_EQUALVERIFY OP_CHECKSIG"></textarea>
+
+      <div class="gap-12"></div>
+
+      <!-- Note box -->
+      <div class="note-box hidden" id="noteBox"></div>
+      <div class="gap-10" id="noteGap" style="display:none"></div>
+
+      <!-- Options -->
+      <div class="options-row">
+        <span class="opt-label">OP_CHECKSIG result:</span>
+        <select id="checksigSel">
+          <option value="valid">Always Valid ✓</option>
+          <option value="invalid">Always Invalid ✗</option>
+        </select>
+      </div>
+
+      <div class="gap-12"></div>
+
+      <button class="btn-execute" id="execBtn" onclick="runScript()">
+        <div class="spinner" id="spinner"></div>
+        <span id="execBtnText">▶ Execute Script</span>
+      </button>
+    </div>
+
+    <!-- Opcode Reference -->
+    <div class="section" style="flex:1">
+      <div class="section-title">Opcode Reference</div>
+      <input class="opcode-search" id="opcodeSearch"
+        placeholder="Search opcodes…" oninput="filterOpcodes(this.value)" />
+      <div class="opcode-list" id="opcodeList">
+        <div style="color:var(--text-muted);font-size:11px">Loading…</div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Right panel ─────────────────────────────────────────── -->
+  <main class="right-panel">
+
+    <!-- Script token display -->
+    <div class="script-display">
+      <div class="script-display-title">
+        Full Script (Unlocking → Locking) &nbsp;·&nbsp;
+        <span id="tokenCountLabel" style="color:var(--text-muted)">No script loaded</span>
+      </div>
+      <div class="token-row" id="tokenRow">
+        <span style="color:var(--text-muted);font-size:12px;font-family:var(--mono)">
+          Load a template or enter a script and click Execute.
+        </span>
+      </div>
+    </div>
+
+    <!-- Main content: stack + info panel -->
+    <div class="main-content">
+
+      <!-- Stack panel -->
+      <div class="stack-panel">
+        <div class="panel-header">
+          <span class="panel-title">Stack</span>
+          <span id="stackDepthLabel" style="font-size:11px;color:var(--text-muted)">depth: 0</span>
+        </div>
+
+        <!-- Execution log -->
+        <div class="log-panel" id="logPanel">
+          <div class="log-entry" style="cursor:default">
+            <span class="log-idx"></span>
+            <span class="log-icon status-initial">○</span>
+            <span class="log-token" style="color:var(--text-muted)">Execute a script to see the log</span>
+          </div>
+        </div>
+
+        <!-- Stack items -->
+        <div style="border-top:1px solid var(--border);padding:10px 20px 4px;
+              font-size:10px;font-weight:700;letter-spacing:0.8px;
+              text-transform:uppercase;color:var(--text-muted)">
+          Stack State
+        </div>
+        <div class="stack-container" id="stackContainer">
+          <div class="stack-empty" id="stackEmpty">Stack is empty</div>
+        </div>
+
+        <!-- Alt stack -->
+        <div class="altstack-section">
+          <div class="altstack-title">Alternate Stack</div>
+          <div class="altstack-items" id="altStackItems">
+            <span class="altstack-empty">empty</span>
+          </div>
+        </div>
+
+        <!-- Result banner -->
+        <div class="result-banner hidden" id="resultBanner">
+          <div class="result-icon" id="resultIcon"></div>
+          <div>
+            <div id="resultText"></div>
+            <div class="result-detail" id="resultDetail"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Info panel (step description + controls) -->
+      <div class="info-panel">
+
+        <!-- Step description -->
+        <div class="step-desc" id="stepDescPanel">
+          <div class="step-counter" id="stepCounter">STEP 0 / 0</div>
+          <div class="step-status-badge badge-blue" id="stepStatusBadge" style="display:none">
+            <span id="stepStatusIcon"></span>
+            <span id="stepStatusText"></span>
+          </div>
+          <div class="step-desc-text" id="stepDescText" style="color:var(--text-muted)">
+            Execute a script to start debugging.
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+          <div class="ctrl-row">
+            <button class="btn" id="btnFirst"  onclick="goStep(0)"      title="First step">⏮</button>
+            <button class="btn" id="btnPrev"   onclick="prevStep()"     title="Previous">◀</button>
+            <button class="btn" id="btnPlay"   onclick="togglePlay()"   title="Auto-play">▶ Auto</button>
+            <button class="btn" id="btnNext"   onclick="nextStep()"     title="Next">▶</button>
+            <button class="btn" id="btnLast"   onclick="goStep(-1)"     title="Last step">⏭</button>
+          </div>
+
+          <div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progressFill" style="width:0%"></div>
+            </div>
+            <div class="step-info-text" style="margin-top:5px">
+              <span id="stepLabel">–</span>
+              <span id="tokenLabel">–</span>
+            </div>
+          </div>
+
+          <div class="speed-row">
+            <span class="speed-label">Speed:</span>
+            <input type="range" id="speedSlider" min="100" max="2000" value="700"
+              oninput="updateSpeed(this.value)" />
+            <span class="speed-label" id="speedLabel">700 ms</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="main.js"></script>
+</body>
+</html>
