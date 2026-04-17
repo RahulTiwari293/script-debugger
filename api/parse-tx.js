@@ -6,6 +6,7 @@ for (const [name, code] of Object.entries(OPCODES)) {
 }
 OPCODE_NAME[0xb1] = 'OP_CHECKLOCKTIMEVERIFY';
 OPCODE_NAME[0xb2] = 'OP_CHECKSEQUENCEVERIFY';
+OPCODE_NAME[0xba] = 'OP_CHECKSIGADD';        // Tapscript BIP342
 
 function hexToBytes(hex) {
   const out = new Uint8Array(hex.length / 2);
@@ -74,7 +75,43 @@ function detectOutputType(scriptHex) {
   return 'Unknown';
 }
 
+// ── P2TR control-block detector ───────────────────────────────────────────────
+// Control block layout: <leaf_version|parity: 1 byte> <internal_pubkey: 32 bytes> [<merkle_path: 32 bytes each>...]
+// Tapscript leaf version = 0xc0, so first byte is 0xc0 (even) or 0xc1 (odd)
+function isControlBlock(hex) {
+  if (!hex) return false;
+  const byteLen = hex.length / 2;
+  if (byteLen < 33) return false;
+  if ((byteLen - 33) % 32 !== 0) return false;
+  const firstByte = parseInt(hex.slice(0, 2), 16);
+  return (firstByte & 0xfe) === 0xc0;
+}
+
 function classifyInput(scriptSigHex, scriptSigAsm, witness) {
+  // ── P2TR Script Path (Taproot script spend) ──────────────────────────────
+  // Witness: [<stack_items...>, <tapscript>, <control_block>]
+  // Control block = last item, tapscript = second-to-last
+  if (!scriptSigHex && witness.length >= 3 && isControlBlock(witness[witness.length - 1])) {
+    const tapscript    = witness[witness.length - 2];
+    const stackItems   = witness.slice(0, -2);
+    const tapscriptAsm = scriptHexToAsm(tapscript);
+    return {
+      inputType: 'P2TR Script Path (Taproot)',
+      suggestedUnlocking: stackItems.join(' '),
+      suggestedLocking:   tapscriptAsm,
+      note: 'Taproot script path: stack items from witness as unlocking; tapscript (witness[-2]) decoded as locking. Control block (witness[-1]) omitted — used for Merkle proof only.',
+    };
+  }
+  // ── P2TR Key Path (Taproot key spend) ────────────────────────────────────
+  // Witness: [<64-byte-schnorr-sig>]  (single item)
+  if (!scriptSigHex && witness.length === 1 && witness[0].length === 128) {
+    return {
+      inputType: 'P2TR Key Path (Taproot)',
+      suggestedUnlocking: witness[0],
+      suggestedLocking:   '',
+      note: 'Taproot key path spend: single 64-byte Schnorr signature in witness. The actual validation is implicit — paste the ScriptPubKey (<tweaked_pubkey> OP_CHECKSIG) from the previous output to simulate.',
+    };
+  }
   if (!scriptSigHex && witness.length === 2 && witness[1].length === 66) {
     let lockHash;
     try { lockHash = computeHash160(witness[1]); } catch { lockHash = null; }

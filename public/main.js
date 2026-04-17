@@ -80,7 +80,7 @@ async function loadTemplates() {
 }
 
 function renderTemplates(list) {
-  const typeColor = { Legacy: 'badge-orange', SegWit: 'badge-blue', Puzzle: 'badge-purple', Advanced: 'badge-yellow' };
+  const typeColor = { Legacy: 'badge-orange', SegWit: 'badge-blue', Taproot: 'badge-taproot', Puzzle: 'badge-purple', Advanced: 'badge-yellow' };
   tplGrid.innerHTML = '';
   list.forEach(tpl => {
     const btn = document.createElement('button');
@@ -601,7 +601,12 @@ async function parseTx() {
 function renderParsedTx(tx) {
   const el = $('txResult');
 
-  const typeColor = { P2PKH:'#f97316', 'P2PKH (SegWit)':'#3b82f6', 'P2WPKH (SegWit)':'#3b82f6', P2PK:'#f97316', P2SH:'#f97316', P2WPKH:'#3b82f6', P2WSH:'#3b82f6', P2TR:'#a855f7', 'OP_RETURN':'#eab308', 'P2MS / P2SH':'#f97316' };
+  const typeColor = {
+    P2PKH:'#f97316', 'P2PKH (SegWit)':'#3b82f6', 'P2WPKH (SegWit)':'#3b82f6',
+    P2PK:'#f97316', P2SH:'#f97316', P2WPKH:'#3b82f6', P2WSH:'#3b82f6',
+    P2TR:'#a855f7', 'P2TR Key Path (Taproot)':'#a855f7', 'P2TR Script Path (Taproot)':'#7c3aed',
+    'OP_RETURN':'#eab308', 'P2MS / P2SH':'#f97316',
+  };
   const badgeStyle = type => {
     const c = typeColor[type] || '#6b7280';
     return `display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;font-family:var(--mono);background:${c}22;color:${c};border:1px solid ${c}44`;
@@ -660,15 +665,38 @@ function renderParsedTx(tx) {
         <div style="font-size:11px;color:var(--text-muted);font-family:var(--mono);margin-bottom:6px">${truncAsm(out.scriptPubKeyAsm)}</div>
         ${out.scriptPubKeyAsm
           ? (() => {
-              let debugLocking = out.scriptPubKeyAsm;
+              let debugLocking   = out.scriptPubKeyAsm;
               let debugUnlocking = '';
-              let debugNote = `Output #${out.index} — ${out.outputType} (${out.btc} BTC)`;
+              let debugNote      = `Output #${out.index} — ${out.outputType} (${out.btc} BTC)`;
+              const asmParts     = out.scriptPubKeyAsm.trim().split(/\s+/);
+
               // P2WPKH: OP_0 <20-byte-hash> → equivalent P2PKH locking script
               if (out.outputType === 'P2WPKH') {
-                const hash = out.scriptPubKeyAsm.split(' ')[1] || '';
+                const hash    = asmParts[1] || '';
                 debugLocking  = `OP_DUP OP_HASH160 ${hash} OP_EQUALVERIFY OP_CHECKSIG`;
-                debugNote += ' [SegWit equivalent]';
+                debugNote    += ' [SegWit v0 equivalent]';
               }
+              // P2TR: OP_1 <32-byte-tweaked-pubkey> → equivalent single-key Schnorr CHECKSIG
+              if (out.outputType === 'P2TR') {
+                const tweakedPubkey = asmParts[1] || '';
+                debugLocking  = `${tweakedPubkey} OP_CHECKSIG`;
+                debugNote    += ' [Taproot key path equivalent]';
+              }
+
+              // For P2TR outputs show two debug options: key path and explanation
+              if (out.outputType === 'P2TR') {
+                const tweakedPubkey = asmParts[1] || '';
+                const keyPathLock   = `${tweakedPubkey} OP_CHECKSIG`;
+                return `
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                    <button onclick='loadScriptsForDebug("<schnorr_sig>",${JSON.stringify(keyPathLock)},${JSON.stringify(debugNote + ' — Key Path')})'
+                      style="font-size:11px;padding:3px 10px;border-radius:5px;cursor:pointer;background:#7c3aed;color:#fff;border:none;font-weight:600">
+                      ▶ Key Path
+                    </button>
+                    <span style="font-size:10px;color:var(--text-muted)">Tweaked key: ${tweakedPubkey.slice(0,12)}… · Script path: provide tapscript manually</span>
+                  </div>`;
+              }
+
               return `<button onclick='loadScriptsForDebug(${JSON.stringify(debugUnlocking)},${JSON.stringify(debugLocking)},${JSON.stringify(debugNote)})'
                style="font-size:11px;padding:3px 10px;border-radius:5px;cursor:pointer;background:var(--accent);color:#fff;border:none;font-weight:600">
                ▶ Debug this output

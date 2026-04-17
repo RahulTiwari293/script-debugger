@@ -26,6 +26,7 @@ for (const [name, code] of Object.entries(OPCODES)) {
 }
 OPCODE_NAME[0xb1] = 'OP_CHECKLOCKTIMEVERIFY';
 OPCODE_NAME[0xb2] = 'OP_CHECKSEQUENCEVERIFY';
+OPCODE_NAME[0xba] = 'OP_CHECKSIGADD';        // Tapscript BIP342
 
 function txHexToBytes(hex) {
   const out = new Uint8Array(hex.length / 2);
@@ -98,7 +99,39 @@ function txDetectOutputType(scriptHex) {
   return 'Unknown';
 }
 
+// P2TR control-block: <leaf_version|parity: 1 byte> <internal_pubkey: 32 bytes> [<path: 32 bytes each>...]
+// Tapscript leaf version byte = 0xc0 or 0xc1
+function isControlBlock(hex) {
+  if (!hex) return false;
+  const byteLen = hex.length / 2;
+  if (byteLen < 33) return false;
+  if ((byteLen - 33) % 32 !== 0) return false;
+  const firstByte = parseInt(hex.slice(0, 2), 16);
+  return (firstByte & 0xfe) === 0xc0;
+}
+
 function classifyInput(scriptSigHex, scriptSigAsm, witness) {
+  // P2TR Script Path (Taproot): empty scriptSig + [stack..., tapscript, control_block]
+  if (!scriptSigHex && witness.length >= 3 && isControlBlock(witness[witness.length - 1])) {
+    const tapscript    = witness[witness.length - 2];
+    const stackItems   = witness.slice(0, -2);
+    const tapscriptAsm = txScriptHexToAsm(tapscript);
+    return {
+      inputType: 'P2TR Script Path (Taproot)',
+      suggestedUnlocking: stackItems.join(' '),
+      suggestedLocking:   tapscriptAsm,
+      note: 'Taproot script path: stack items from witness as unlocking; tapscript (witness[-2]) decoded as locking. Control block (witness[-1]) omitted — used for Merkle proof only.',
+    };
+  }
+  // P2TR Key Path (Taproot): empty scriptSig + single 64-byte Schnorr sig
+  if (!scriptSigHex && witness.length === 1 && witness[0].length === 128) {
+    return {
+      inputType: 'P2TR Key Path (Taproot)',
+      suggestedUnlocking: witness[0],
+      suggestedLocking:   '',
+      note: 'Taproot key path spend: single 64-byte Schnorr signature in witness. Paste the ScriptPubKey (<tweaked_pubkey> OP_CHECKSIG) from the previous output to simulate.',
+    };
+  }
   // SegWit P2WPKH: empty scriptSig + 2-item witness [sig, 33-byte-pubkey]
   if (!scriptSigHex && witness.length === 2 && witness[1].length === 66) {
     let lockHash;

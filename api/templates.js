@@ -5,6 +5,12 @@ const FAKE_PUBKEY2 = '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b9
 const FAKE_PUBKEY3 = '02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9';
 const FAKE_SIG     = '3044022079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f8179802202222222222222222222222222222222222222222222222222222222222222222220101';
 const FAKE_SIG2    = '3044022079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f8179802203333333333333333333333333333333333333333333333333333333333333333330101';
+// Taproot uses 32-byte x-only public keys (no 02/03 prefix) and 64-byte Schnorr signatures
+const FAKE_XONLY_PUBKEY  = '79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
+const FAKE_XONLY_PUBKEY2 = 'c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5';
+const FAKE_TWEAKED_PUBKEY = 'e0dfe2300b0dd746a3f8674dfd4525623639042569d829c7f0eed9602d263e6f';
+const FAKE_SCHNORR_SIG   = 'e907831f80848d1069a5371b402410364bdf1c5f8307b0084c55f1ce2dca82157f87e6bbf9b899d32d897fcec9c6e7c4b5e3f3b55fbf0078fd5e9e4f26cfb76c';
+const FAKE_SCHNORR_SIG2  = 'a1b2c3d4e5f678901234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12';
 const HELLO_HEX    = '68656c6c6f';
 const HELLO_SHA256 = computeSha256(HELLO_HEX);
 
@@ -39,6 +45,33 @@ const TEMPLATES = [
     unlocking: `OP_0 ${FAKE_SIG} ${FAKE_SIG2}`,
     locking: `OP_2 ${FAKE_PUBKEY} ${FAKE_PUBKEY2} ${FAKE_PUBKEY3} OP_3 OP_CHECKMULTISIG`,
     note: 'ScriptSig = OP_0 <sig1> <sig2>  |  ScriptPubKey = OP_2 <pk1> <pk2> <pk3> OP_3 OP_CHECKMULTISIG',
+  },
+  {
+    id: 'p2tr_keypath',
+    name: 'P2TR Key Path — Pay to Taproot (SegWit v1)',
+    type: 'Taproot',
+    description: 'Taproot key path spending (BIP341). The ScriptPubKey is OP_1 <32-byte-tweaked-pubkey>. Spending requires a single 64-byte Schnorr signature. Shown as the equivalent single-key CHECKSIG to simulate the implicit validation.',
+    unlocking: FAKE_SCHNORR_SIG,
+    locking: `${FAKE_TWEAKED_PUBKEY} OP_CHECKSIG`,
+    note: `Real ScriptPubKey: OP_1 <32-byte-tweaked-pubkey>  |  Witness: [<64-byte-schnorr-sig>]  |  Key path: spends directly with a single Schnorr sig against the tweaked internal key. No visible script — all logic hidden in the key tweak.`,
+  },
+  {
+    id: 'p2tr_scriptpath',
+    name: 'P2TR Script Path — Tapscript 2-of-2 (SegWit v1)',
+    type: 'Taproot',
+    description: 'Taproot script path via Tapscript (BIP342). Uses OP_CHECKSIGADD — the new Schnorr multisig accumulator. Unlike legacy OP_CHECKMULTISIG, there is no off-by-one bug. 2-of-2 requires both signatures; uses OP_NUMEQUAL to check the accumulated count.',
+    unlocking: `${FAKE_SCHNORR_SIG2} ${FAKE_SCHNORR_SIG}`,
+    locking: `${FAKE_XONLY_PUBKEY} OP_CHECKSIG ${FAKE_XONLY_PUBKEY2} OP_CHECKSIGADD OP_2 OP_NUMEQUAL`,
+    note: `Tapscript 2-of-2: <sig1> <sig2> | <pk1> OP_CHECKSIG pushes 0 or 1; <pk2> OP_CHECKSIGADD adds to counter; OP_2 OP_NUMEQUAL checks counter == 2. No dummy OP_0 needed (legacy bug fixed).`,
+  },
+  {
+    id: 'p2tr_scriptpath_threshold',
+    name: 'P2TR Script Path — Tapscript 2-of-3 Threshold (SegWit v1)',
+    type: 'Taproot',
+    description: 'Tapscript 2-of-3 threshold signature using OP_CHECKSIGADD. Any 2 of 3 keys can sign. Non-signing keys provide empty signatures. OP_NUMEQUAL checks the accumulated valid signature count.',
+    unlocking: `${FAKE_SCHNORR_SIG} ${FAKE_SCHNORR_SIG2} ""`,
+    locking: `${FAKE_XONLY_PUBKEY} OP_CHECKSIG ${FAKE_XONLY_PUBKEY2} OP_CHECKSIGADD ${FAKE_TWEAKED_PUBKEY} OP_CHECKSIGADD OP_2 OP_NUMEQUAL`,
+    note: 'Tapscript 2-of-3: non-signing key provides empty string (""); OP_CHECKSIGADD accumulates count; OP_2 OP_NUMEQUAL verifies exactly 2 valid sigs.',
   },
   {
     id: 'p2wpkh',

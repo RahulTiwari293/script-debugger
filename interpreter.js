@@ -1,6 +1,7 @@
 /**
  * Bitcoin Script Interpreter — Lab 9
  * Supports: P2PK, P2PKH, P2MS, P2SH (locking pattern), P2WPKH (equivalent),
+ *           P2TR Key Path (equivalent), P2TR Script Path (Tapscript),
  *           Hash Puzzle, Math Puzzle, OP_RETURN, and all standard opcodes.
  *
  * Stack convention: stack[stack.length - 1] is the TOP.
@@ -44,6 +45,8 @@ export const OPCODES = {
   OP_CODESEPARATOR: 0xab,
   OP_CHECKSIG: 0xac, OP_CHECKSIGVERIFY: 0xad,
   OP_CHECKMULTISIG: 0xae, OP_CHECKMULTISIGVERIFY: 0xaf,
+  // Tapscript (BIP342) — SegWit v1 / P2TR
+  OP_CHECKSIGADD: 0xba,
 };
 
 export const OPCODE_DESCRIPTIONS = {
@@ -104,10 +107,11 @@ export const OPCODE_DESCRIPTIONS = {
   OP_HASH160:            'Hashes the top item with SHA-256 then RIPEMD-160. Used in P2PKH.',
   OP_HASH256:            'Hashes the top item with SHA-256 twice (double-SHA256).',
   OP_CODESEPARATOR:      'Marks the current position — affects CHECKSIG (advanced). No stack effect.',
-  OP_CHECKSIG:           'Pops pubkey and sig. Pushes 1 if signature is valid, 0 otherwise. (Simulated here)',
+  OP_CHECKSIG:           'Pops pubkey and sig. Pushes 1 if signature is valid, 0 otherwise. In Tapscript uses Schnorr instead of ECDSA. (Simulated here)',
   OP_CHECKSIGVERIFY:     'Like OP_CHECKSIG but fails script if signature is invalid. (Simulated)',
-  OP_CHECKMULTISIG:      'Verifies M-of-N multisig. Pops N pubkeys, M sigs, an extra dummy value. Pushes 1/0. (Simulated)',
-  OP_CHECKMULTISIGVERIFY:'Like OP_CHECKMULTISIG but fails if invalid. (Simulated)',
+  OP_CHECKMULTISIG:      'Verifies M-of-N multisig. Pops N pubkeys, M sigs, an extra dummy value. Pushes 1/0. Legacy only — DISABLED in Tapscript. (Simulated)',
+  OP_CHECKMULTISIGVERIFY:'Like OP_CHECKMULTISIG but fails if invalid. Legacy only — DISABLED in Tapscript. (Simulated)',
+  OP_CHECKSIGADD:        'Tapscript (BIP342): Pops pubkey, n, sig. If sig is non-empty and valid pushes n+1, else pushes n unchanged. Used for threshold Schnorr multisig without the legacy off-by-one bug. (Simulated)',
 };
 
 // ─── Crypto helpers ────────────────────────────────────────────────────────────
@@ -587,6 +591,22 @@ export function executeScript(unlockingStr, lockingStr, options = {}) {
           if (!ok) throw new Error('OP_CHECKMULTISIGVERIFY FAILED: multisig invalid (simulated).');
           description = `OP_CHECKMULTISIGVERIFY: ${m}-of-${n} multisig VALID ✓ (simulated).`;
           status = 'success';
+          break;
+        }
+        // ── Tapscript (BIP342) ────────────────────────────────────────────────
+        case 'OP_CHECKSIGADD': {
+          // Stack (top→bottom): pubkey | n | sig
+          if (stack.length < 3) throw new Error('OP_CHECKSIGADD: need ≥ 3 items (pubkey, n, sig)');
+          const pubkey = stack.pop();
+          const n      = parseInt(stack.pop());
+          const sig    = stack.pop();
+          if (isNaN(n)) throw new Error('OP_CHECKSIGADD: n is not a number');
+          const sigPresent = sig !== '' && sig !== '00';
+          const ok = sigPresent && checksigResult !== 'invalid';
+          const result = ok ? n + 1 : n;
+          stack.push(String(result));
+          description = `OP_CHECKSIGADD (Tapscript): sig [${fmt(sig)}] vs pubkey [${fmt(pubkey)}] — ${ok ? 'valid Schnorr sig ✓' : 'no/invalid sig'} → n ${n} + ${ok ? 1 : 0} = ${result}. (simulated)`;
+          status = ok ? 'ok' : 'warning';
           break;
         }
 
