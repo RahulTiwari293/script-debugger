@@ -123,14 +123,24 @@ function classifyInput(scriptSigHex, scriptSigAsm, witness) {
       note: 'Taproot script path: stack items from witness as unlocking; tapscript (witness[-2]) decoded as locking. Control block (witness[-1]) omitted — used for Merkle proof only.',
     };
   }
-  // P2TR Key Path (Taproot): empty scriptSig + single 64-byte Schnorr sig
-  if (!scriptSigHex && witness.length === 1 && witness[0].length === 128) {
-    return {
-      inputType: 'P2TR Key Path (Taproot)',
-      suggestedUnlocking: witness[0],
-      suggestedLocking:   '',
-      note: 'Taproot key path spend: single 64-byte Schnorr signature in witness. Paste the ScriptPubKey (<tweaked_pubkey> OP_CHECKSIG) from the previous output to simulate.',
-    };
+  // P2TR Key Path (Taproot): empty scriptSig + Schnorr sig (64 or 65 bytes)
+  // 64 bytes = SIGHASH_DEFAULT (no explicit sighash suffix) = 128 hex chars
+  // 65 bytes = explicit sighash type appended                = 130 hex chars
+  // With optional annex: [<sig>, <annex>] where annex starts with 0x50
+  if (!scriptSigHex && witness.length >= 1) {
+    const sigHex    = witness[0];
+    const sigBytes  = sigHex.length / 2;
+    const isSchnorr = sigBytes === 64 || sigBytes === 65;
+    const annex     = witness.length === 2 && witness[1].startsWith('50');
+    const isKeyPath = isSchnorr && (witness.length === 1 || annex);
+    if (isKeyPath) {
+      return {
+        inputType: 'P2TR Key Path (Taproot)',
+        suggestedUnlocking: sigHex,
+        suggestedLocking:   '',
+        note: `Taproot key path spend: ${sigBytes}-byte Schnorr signature in witness${annex ? ' (annex present)' : ''}. Paste the ScriptPubKey (<tweaked_pubkey> OP_CHECKSIG) from the previous output to simulate.`,
+      };
+    }
   }
   // SegWit P2WPKH: empty scriptSig + 2-item witness [sig, 33-byte-pubkey]
   if (!scriptSigHex && witness.length === 2 && witness[1].length === 66) {

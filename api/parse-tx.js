@@ -103,14 +103,23 @@ function classifyInput(scriptSigHex, scriptSigAsm, witness) {
     };
   }
   // ── P2TR Key Path (Taproot key spend) ────────────────────────────────────
-  // Witness: [<64-byte-schnorr-sig>]  (single item)
-  if (!scriptSigHex && witness.length === 1 && witness[0].length === 128) {
-    return {
-      inputType: 'P2TR Key Path (Taproot)',
-      suggestedUnlocking: witness[0],
-      suggestedLocking:   '',
-      note: 'Taproot key path spend: single 64-byte Schnorr signature in witness. The actual validation is implicit — paste the ScriptPubKey (<tweaked_pubkey> OP_CHECKSIG) from the previous output to simulate.',
-    };
+  // Witness: [<schnorr_sig>]  — 64 bytes (SIGHASH_DEFAULT, no suffix) = 128 hex
+  //                           — 65 bytes (explicit sighash byte appended)  = 130 hex
+  // With optional annex: [<schnorr_sig>, <annex>] where annex starts with 0x50
+  if (!scriptSigHex && witness.length >= 1) {
+    const sigHex   = witness[0];
+    const sigBytes = sigHex.length / 2;
+    const isSchnorr = sigBytes === 64 || sigBytes === 65;
+    const annex     = witness.length === 2 && witness[1].startsWith('50');
+    const isKeyPath = isSchnorr && (witness.length === 1 || annex);
+    if (isKeyPath) {
+      return {
+        inputType: 'P2TR Key Path (Taproot)',
+        suggestedUnlocking: sigHex,
+        suggestedLocking:   '',
+        note: `Taproot key path spend: ${sigBytes}-byte Schnorr signature in witness${annex ? ' (annex present)' : ''}. Paste the ScriptPubKey (<tweaked_pubkey> OP_CHECKSIG) from the previous output to simulate.`,
+      };
+    }
   }
   if (!scriptSigHex && witness.length === 2 && witness[1].length === 66) {
     let lockHash;
